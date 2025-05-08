@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.sqlite3
+*.log
+*.env
+.env.*
+.vscode/
+*.egg-info/
+.env/
+venv/
+env/
+node_modules/
