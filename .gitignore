@@ -1,4 +1,6 @@
 env/
+venv/
+.venv/
 aplens/aplens/
 __pycache__/
 *.pyc
