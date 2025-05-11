@@ -61,7 +61,6 @@ My job is to:
 Decision logic:
 - If the user specifies a particular architectural pattern (e.g., "analyze MVC pattern"), route to the Pattern Evaluation Agent
 - If the user wants to identify patterns without specifying them (e.g., "what patterns are used"), route to the ArchiDetect Agent
-- If the user wants a comprehensive analysis, consider using both agents sequentially (first ArchiDetect to identify patterns, then Pattern Evaluation for in-depth analysis)
 
 Common architectural patterns include:
 - MVC (Model-View-Controller)
@@ -78,6 +77,7 @@ Common architectural patterns include:
 - Pipe-and-Filter
 
 If the user doesn't specify an architectural pattern but wants architecture analysis, I should default to using the ArchiDetect Agent first to identify what patterns are present, then suggest evaluating specific patterns with the Pattern Evaluation Agent.
+When this agent is selected, always say exactly what the user asked for, because this agent has many capabilities
 """
 
 def parse_structured_response(response_text):
