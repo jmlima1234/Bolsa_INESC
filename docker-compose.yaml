@@ -1,0 +1,52 @@
+version: '3.9'
+
+services:
+  redis:
+    image: redis:7
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - agents-net
+
+  aplens:
+    build: ./aplens
+    container_name: aplens
+    ports:
+      - "8001:8000"
+    depends_on:
+      - redis
+    networks:
+      - agents-net
+    volumes:
+      - ./aplens:/app
+
+  archidetect:
+    build: ./archidetect
+    container_name: archidetect
+    ports:
+      - "8002:8000"
+    depends_on:
+      - redis
+    networks:
+      - agents-net
+    volumes:
+      - ./archidetect:/app
+
+  strange:
+    build: ./strange
+    container_name: strange
+    ports:
+      - "8000:8000"
+    depends_on:
+      - aplens
+      - archidetect
+      - redis
+    networks:
+      - agents-net
+    volumes:
+      - ./strange:/app
+
+networks:
+  agents-net:
+    driver: bridge

@@ -1,0 +1,11 @@
+env/
+<<<<<<< HEAD
+venv/
+.venv/
+=======
+>>>>>>> 507b7ed5e8470e9e3f43443ba24b2307e3206f03
+aplens/aplens/
+__pycache__/
+*.pyc
+*.sqlite3
+*.log
