@@ -2,7 +2,7 @@
 
 # Navigate into backend and run Django server
 cd server
-python manage.py runserver &
+python3 manage.py runserver &
 BACKEND_PID=$!
 
 # Start frontend
