@@ -2,15 +2,14 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from django.views.decorators.csrf import csrf_exempt
 
-from api.utils.github_api import (
-    get_issues,
-    get_user_stories,
-    get_commits,
-    get_contributors_activity,
-    get_all_commits,
-)
-from api.utils.gemini_api import send_prompt
+import os
+import sys
 
+from gitagent.gitagent import GitAgent
+
+
+from api.utils.gemini_api import send_prompt
+git = GitAgent(provider="github")
 
 def handle_api_response(data, success_prompt):
     """
@@ -41,7 +40,7 @@ def analyze_repo_commits(request, repo_owner, repo_name):
     :param repo_name: GitHub repository name.
     :return: JSON response with analysis.
     """
-    commits = get_commits(repo_owner, repo_name)
+    commits = git.get_commits(repo_owner, repo_name)
     prompt = (
         f"I will send you commits, and you will answer with the architectural patterns that you can find from the commits. "
         f"Be as extensive as you want to explain why you think the pattern is present.\n{commits}\n\n"
@@ -99,7 +98,7 @@ def analyze_repo_issues(request, repo_owner, repo_name):
     :param repo_name: GitHub repository name.
     :return: JSON response with analysis.
     """
-    issues = get_issues(repo_owner, repo_name)
+    issues = git.get_issues(repo_owner, repo_name)
     prompt = (
         f"I will send you issues, and you will answer with the architectural patterns that you can find from the issues. "
         f"Be as extensive as you want to explain why you think the pattern is present.\n{issues}\n\n"
@@ -144,7 +143,7 @@ def analyze_user_stories(request, repo_owner, repo_name):
     :param repo_name: GitHub repository name.
     :return: JSON response with analysis.
     """
-    user_stories = get_user_stories(repo_owner, repo_name)
+    user_stories = git.get_user_stories(repo_owner, repo_name)
     if not user_stories:
         return Response(
             {"error": "Failed to find repo or no user stories available."}, status=404
@@ -188,7 +187,7 @@ def analyze_contributors_activity(request, repo_owner, repo_name):
     :param repo_name: GitHub repository name.
     :return: JSON response with analysis.
     """
-    contributors_activity = get_contributors_activity(repo_owner, repo_name)
+    contributors_activity = git.get_contributors_activity(repo_owner, repo_name)
     if not contributors_activity:
         return Response(
             {"error": "Failed to fetch contributors' activity."}, status=404
@@ -240,7 +239,7 @@ def analyze_commit_sizes(request, repo_owner, repo_name):
     :param repo_name: GitHub repository name.
     :return: JSON response with analysis.
     """
-    commits = get_all_commits(repo_owner, repo_name)
+    commits = git.get_all_commits(repo_owner, repo_name)
     if not commits:
         return Response({"error": "Failed to fetch commits."}, status=404)
 
@@ -296,7 +295,7 @@ def analyze_architecture_trends(request, repo_owner, repo_name):
     :param repo_name: GitHub repository name.
     :return: JSON response with analysis.
     """
-    commits = get_all_commits(repo_owner, repo_name)
+    commits = git.get_all_commits(repo_owner, repo_name)
     if not commits:
         return Response({"error": "Failed to fetch commits."}, status=404)
 
@@ -351,10 +350,10 @@ def analyze_full_repo(request, repo_owner, repo_name):
     :return: JSON response with analysis.
     """
     # Fetch data from all endpoints
-    commits = get_all_commits(repo_owner, repo_name)
-    issues = get_issues(repo_owner, repo_name)
-    user_stories = get_user_stories(repo_owner, repo_name)
-    contributors_activity = get_contributors_activity(repo_owner, repo_name)
+    commits = git.get_all_commits(repo_owner, repo_name)
+    issues = git.get_issues(repo_owner, repo_name)
+    user_stories = git.get_user_stories(repo_owner, repo_name)
+    contributors_activity = git.get_contributors_activity(repo_owner, repo_name)
 
     # Check if at least one data source is available
     if not (commits or issues or user_stories or contributors_activity):
@@ -451,7 +450,7 @@ def analyze_commit_activity(request, repo_owner, repo_name):
     :param repo_name: GitHub repository name.
     :return: JSON response with analysis.
     """
-    commits = get_all_commits(repo_owner, repo_name)
+    commits = git.get_all_commits(repo_owner, repo_name)
     if not commits:
         return Response({"error": "Failed to fetch commits."}, status=404)
 
