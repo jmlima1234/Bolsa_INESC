@@ -293,6 +293,7 @@ def orchestrate_request(request):
             # Prepare the message payload for the agent
             message_payload = {
                 "agent_instruction": agent_message_content, # The specific instruction for the agent
+                "repo_url": parsed_response.get("repo_url"),
                 "timestamp": datetime.utcnow().isoformat(),
             }
             message_data = json.dumps(message_payload).encode('utf-8')
@@ -303,16 +304,14 @@ def orchestrate_request(request):
             topic_path = publisher.topic_path(PROJECT_ID, topic_id)
             logger.info(f"Attempting to publish message to topic: {topic_path}")
 
-            # Define the callback function (can be at module level)
             def callback(future):
-                # --- This function runs when the publish operation completes ---
                 try:
-                    message_id = future.result() # This waits for the result
+                    message_id = future.result() 
                     logger.info(f"SUCCESS: Published message with ID: {message_id} to topic {topic_path}")
-                    print(f"SUCCESS: Published message with ID: {message_id} to topic {topic_path}") # Ensure this is present
+                    print(f"SUCCESS: Published message with ID: {message_id} to topic {topic_path}") 
                 except Exception as e:
                     logger.error(f"ERROR in publish callback for topic {topic_path}: {type(e).__name__} - {e}")
-                    print(f"ERROR in publish callback for topic {topic_path}: {type(e).__name__} - {e}") # Ensure this is present
+                    print(f"ERROR in publish callback for topic {topic_path}: {type(e).__name__} - {e}") 
 
             future = publisher.publish(topic_path, message_data)
             future.add_done_callback(callback)
