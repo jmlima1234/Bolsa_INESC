@@ -6,21 +6,89 @@ import google.generativeai as genai
 import json
 from datetime import datetime
 
+from google.api_core import exceptions
+import time
 from google.cloud import pubsub_v1
 import os 
+import logging 
 
 # Configure Gemini
 genai.configure(api_key='AIzaSyCjX3yJdbFfwWSxr8aRBQJ2VsKrd-iXywM')
 model = genai.GenerativeModel("gemini-1.5-flash")
+logger = logging.getLogger(__name__)
 
+AGENT_TOPIC_MAPPING = {
+    "Pattern Evaluation Agent": "aplens",
+    "ArchiDetect Agent": "archidetect",
+}
 # --- Pub/Sub Configuration ---
 PROJECT_ID = os.getenv('PUBSUB_PROJECT_ID', 'my-local-emulator-project') 
-REQUEST_TOPIC_ID = 'test-topic'
 
-# Create a Pub/Sub publisher client
-# This client will automatically use the emulator because PUBSUB_EMULATOR_HOST is set
-publisher = pubsub_v1.PublisherClient()
-request_topic_path = publisher.topic_path(PROJECT_ID, REQUEST_TOPIC_ID)
+# Configure Pub/Sub emulator if running locally
+if os.getenv('PUBSUB_EMULATOR_HOST'):
+    # The PublisherClient will automatically pick up PUBSUB_EMULATOR_HOST
+    logger.info(f"Using Pub/Sub emulator at {os.getenv('PUBSUB_EMULATOR_HOST')}")
+else:
+    logger.info("Using production Pub/Sub.")
+
+try:
+    # Create a Pub/Sub publisher client
+    publisher = pubsub_v1.PublisherClient()
+    logger.info("Pub/Sub publisher client initialized successfully.")
+except Exception as e:
+    logger.error(f"Error initializing Pub/Sub publisher client: {e}")
+    publisher = None 
+
+def create_topic_if_not_exists(publisher_client, topic_path):
+    """Creates a Pub/Sub topic if it doesn't already exist."""
+    if publisher_client is None:
+        print("ERROR: Pub/Sub publisher client not initialized. Cannot create topic.")
+        return False 
+
+    print(f"--- Topic Check/Creation ---")
+    print(f"Action: Checking for topic existence: {topic_path}")
+    try:
+        publisher_client.get_topic(request={"topic": topic_path})
+        print(f"Result: Topic {topic_path} already exists.")
+        print(f"----------------------------")
+        return True 
+    except exceptions.NotFound:
+        print(f"Result: Topic {topic_path} not found.")
+        print(f"Action: Attempting to create topic: {topic_path}")
+        try:
+            created_topic = publisher_client.create_topic(request={"name": topic_path})
+            print(f"Result: Topic {created_topic.name} created successfully.")
+            print("INFO: Sleeping for 1 second after creation...")
+            time.sleep(1)
+            print(f"----------------------------")
+            return True 
+        except exceptions.AlreadyExists:
+            print(f"Result: Topic {topic_path} already exists (likely race condition).")
+            print(f"----------------------------")
+            return True 
+        except Exception as e:
+            print(f"ERROR: Unexpected error during topic creation for {topic_path}: {type(e).__name__} - {e}")
+            print(f"----------------------------")
+            raise
+    except Exception as e:
+        print(f"ERROR: An unexpected error occurred while checking for topic {topic_path}: {type(e).__name__} - {e}")
+        print(f"----------------------------")
+        raise
+
+def check_topic_exists(publisher_client, topic_path):
+     """Checks if a topic exists and returns True/False."""
+     if publisher_client is None:
+         print("ERROR: Pub/Sub publisher client not initialized. Cannot check topic existence.")
+         return False 
+
+     try:
+         publisher_client.get_topic(request={"topic": topic_path})
+         return True
+     except exceptions.NotFound:
+         return False
+     except Exception as e:
+         print(f"ERROR: Unexpected error during final topic check for {topic_path}: {type(e).__name__} - {e}")
+         return False
 
 # Define the system prompt as a global variable
 SYSTEM_PROMPT = """
@@ -190,54 +258,112 @@ def parse_structured_response(response_text):
 @csrf_exempt
 @api_view(["POST"])
 def orchestrate_request(request):
-    """Handle requests and publish a test message to Pub/Sub"""
-
-    # Get user input from request (optional for this test, but good practice)
-    user_input = request.data.get('user_input', 'No input provided')
-
-    print(f"Received user input: {user_input}")
-
-    try:
-        # --- Pub/Sub Logic: Publish a "Hello World" message ---
-
-        # Create the message payload
-        message_payload = {
-            "greeting": "Hello World from Orchestration Agent!",
-            "timestamp": datetime.utcnow().isoformat(),
-            "original_input": user_input,
-        }
-
-        # Convert payload to JSON string and then to bytes
-        message_data = json.dumps(message_payload).encode('utf-8')
-
-        # Publish the message to the test topic
-        print(f"Attempting to publish message to topic: {request_topic_path}")
-        future = publisher.publish(request_topic_path, message_data)
-
-        # This is a non-blocking call. We can add a callback to handle the result.
-        # For a web server, you generally want to avoid blocking calls.
-        # future.result() would block until the publish is confirmed.
-        # Let's add a callback for simple logging.
-        def callback(future):
-            message_id = future.result()
-            print(f"Published message with ID: {message_id}")
-            # You could potentially log this or update a status in a database
-
-        future.add_done_callback(callback)
-
-        print("Publish call initiated (non-blocking).")
-
-        # --- Respond to the user ---
-        # We respond immediately because publishing is asynchronous
-        return Response({
-            "status": "publishing_test_message",
-            "message": "Attempting to publish a test 'Hello World' message to Pub/Sub.",
-            # We don't have a job_id or specialized agent response yet in this test step
-        }, status=status.HTTP_200_OK) # Use 200 OK as we are just confirming the action
-
-    except Exception as e:
-        print(f"Error publishing message: {e}")
+    """Handle orchestration requests and route to appropriate agent"""
+    
+    # Get user input from request
+    user_input = request.data.get('user_input')
+    
+    if not user_input:
         return Response({
             "status": "error",
-            "message": f"Failed to publish message to Pub/Sub: {str(e)}"
+            "message": "Please provide 'user_input' in the request body."
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        # Create the orchestration prompt
+        orchestration_prompt = f"""
+        {SYSTEM_PROMPT}
+
+        User request: "{user_input}"
+
+        Based on this request, please analyze and provide your response in the following structured format:
+
+        SELECTED_AGENT: [Either "Pattern Evaluation Agent" or "ArchiDetect Agent"]
+        REASON: [Brief explanation of why this agent is appropriate for the request]
+        MISSING_INFORMATION: [List any critical information that's missing, or "None" if request is complete]
+        MESSAGE_TO_AGENT: [The natural language instruction you would send to the selected agent, indicating everything technical in detail for the agent to solve the problem]
+        """
+        
+        # Get response from model
+        response = model.generate_content(orchestration_prompt)
+        response_text = response.text
+        
+        # Parse the structured response
+        parsed_response = parse_structured_response(response_text)
+        print(f"Parsed response: {parsed_response}")
+
+
+        # Check if we need to ask the user for more information
+        if parsed_response.get("missing_information") and parsed_response["missing_information"].lower() != "none":
+            return Response({
+                "status": "need_more_info",
+                "questions": [parsed_response["missing_information"]],
+                "message": f"I need some additional information to process your request: {parsed_response['missing_information']}"
+            }, status=status.HTTP_200_OK)
+        
+        # --- Pub/Sub Publishing Logic ---
+        if publisher:
+            selected_agent_name = parsed_response.get("selected_agent")
+            agent_message_content = parsed_response.get("message_to_agent")
+            # Map the agent name to a Pub/Sub topic ID
+            topic_id = AGENT_TOPIC_MAPPING.get(selected_agent_name)
+
+            if not topic_id:
+                logger.error(f"Unknown agent name from Gemini: {selected_agent_name}. Cannot map to topic.")
+                return Response({
+                    "status": "error",
+                    "message": f"AI selected an unknown agent: {selected_agent_name}."
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+            # Prepare the message payload for the agent
+            message_payload = {
+                "agent_instruction": agent_message_content, # The specific instruction for the agent
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+            message_data = json.dumps(message_payload).encode('utf-8')
+
+            topic_path = publisher.topic_path(PROJECT_ID, topic_id)
+            logger.info(f"Attempting to publish message to topic: {topic_path}")
+
+            # Create topic if it doesn't exist (useful for dev)
+            create_topic_if_not_exists(publisher, topic_path) 
+
+            # Define the callback function (can be at module level)
+            def callback(future):
+                # --- This function runs when the publish operation completes ---
+                try:
+                    message_id = future.result() # This waits for the result
+                    logger.info(f"SUCCESS: Published message with ID: {message_id} to topic {topic_path}")
+                    print(f"SUCCESS: Published message with ID: {message_id} to topic {topic_path}") # Ensure this is present
+                except Exception as e:
+                    logger.error(f"ERROR in publish callback for topic {topic_path}: {type(e).__name__} - {e}")
+                    print(f"ERROR in publish callback for topic {topic_path}: {type(e).__name__} - {e}") # Ensure this is present
+
+            future = publisher.publish(topic_path, message_data)
+            future.add_done_callback(callback)
+            logger.info(f"Publish call initiated for topic {topic_path}.")
+            print(f"INFO: Publish call initiated for topic {topic_path}.")
+            # Return a success response indicating the message is being published
+            return Response({
+                "status": "processing", # Indicate that processing is happening via Pub/Sub
+                "message": f"Request routed to agent '{selected_agent_name}'. Message being published to topic '{topic_id}'.",
+                "agent": selected_agent_name,
+                "agent_message": agent_message_content,
+            }, status=status.HTTP_200_OK)
+
+        # Return the parsed response
+        return Response({
+            "status": "ready",
+            "message": parsed_response.get("reason", "I'll process your request to analyze this GitHub repository."),
+            "agent": parsed_response.get("selected_agent"),
+            "agent_message": parsed_response.get("message_to_agent"),
+            "extracted_info": parsed_response.get("extracted_information", {})
+        }, status=status.HTTP_200_OK)
+    
+    except Exception as e:
+        print(f"Error processing request: {e}")
+        return Response({
+            "status": "error",
+            "message": f"I'm having trouble understanding your request: {str(e)}"
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
