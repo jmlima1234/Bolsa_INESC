@@ -93,6 +93,48 @@ DATABASES = {
     }
 }
 
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO', # Set root logger to INFO level
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO', # You can adjust this if Django logs are too noisy
+            'propagate': False,
+        },
+        'api': { # Assuming your app name is 'api'
+            'handlers': ['console'],
+            'level': 'INFO', # Ensure logs from your 'api' app are shown
+            'propagate': False,
+        },
+        # Add a logger for your management command module if needed, though 'api' or 'root' should cover it
+        'strange.api.management.commands.run_results_subscriber': {
+             'handlers': ['console'],
+             'level': 'INFO',
+             'propagate': False,
+        }
+    }
+}
 
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators

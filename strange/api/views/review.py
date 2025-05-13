@@ -18,8 +18,8 @@ model = genai.GenerativeModel("gemini-1.5-flash")
 logger = logging.getLogger(__name__)
 
 AGENT_TOPIC_MAPPING = {
-    "Pattern Evaluation Agent": "aplens",
-    "ArchiDetect Agent": "archidetect",
+    "Pattern Evaluation Agent": "strange-aplens-sub",
+    "ArchiDetect Agent": "strange-archidetect-sub",
 }
 # --- Pub/Sub Configuration ---
 PROJECT_ID = os.getenv('PUBSUB_PROJECT_ID', 'my-local-emulator-project') 
@@ -39,56 +39,30 @@ except Exception as e:
     logger.error(f"Error initializing Pub/Sub publisher client: {e}")
     publisher = None 
 
-def create_topic_if_not_exists(publisher_client, topic_path):
+def create_topic_if_not_exists(publisher_client, topic_id):
     """Creates a Pub/Sub topic if it doesn't already exist."""
     if publisher_client is None:
-        print("ERROR: Pub/Sub publisher client not initialized. Cannot create topic.")
-        return False 
+        logger.error("Pub/Sub publisher client not initialized. Cannot create topic.")
+        return False
 
-    print(f"--- Topic Check/Creation ---")
-    print(f"Action: Checking for topic existence: {topic_path}")
+    topic_path = publisher_client.topic_path(PROJECT_ID, topic_id)
+    logger.info(f"Checking for topic existence: {topic_path}")
     try:
         publisher_client.get_topic(request={"topic": topic_path})
-        print(f"Result: Topic {topic_path} already exists.")
-        print(f"----------------------------")
-        return True 
+        logger.info(f"Topic {topic_path} already exists.")
+        return True
     except exceptions.NotFound:
-        print(f"Result: Topic {topic_path} not found.")
-        print(f"Action: Attempting to create topic: {topic_path}")
+        logger.info(f"Topic {topic_path} not found. Creating...")
         try:
-            created_topic = publisher_client.create_topic(request={"name": topic_path})
-            print(f"Result: Topic {created_topic.name} created successfully.")
-            print("INFO: Sleeping for 1 second after creation...")
-            time.sleep(1)
-            print(f"----------------------------")
-            return True 
-        except exceptions.AlreadyExists:
-            print(f"Result: Topic {topic_path} already exists (likely race condition).")
-            print(f"----------------------------")
-            return True 
+            publisher_client.create_topic(request={"name": topic_path})
+            logger.info(f"Topic {topic_path} created.")
+            return True
         except Exception as e:
-            print(f"ERROR: Unexpected error during topic creation for {topic_path}: {type(e).__name__} - {e}")
-            print(f"----------------------------")
-            raise
+            logger.error(f"Failed to create topic {topic_path}: {e}")
+            return False
     except Exception as e:
-        print(f"ERROR: An unexpected error occurred while checking for topic {topic_path}: {type(e).__name__} - {e}")
-        print(f"----------------------------")
-        raise
-
-def check_topic_exists(publisher_client, topic_path):
-     """Checks if a topic exists and returns True/False."""
-     if publisher_client is None:
-         print("ERROR: Pub/Sub publisher client not initialized. Cannot check topic existence.")
-         return False 
-
-     try:
-         publisher_client.get_topic(request={"topic": topic_path})
-         return True
-     except exceptions.NotFound:
-         return False
-     except Exception as e:
-         print(f"ERROR: Unexpected error during final topic check for {topic_path}: {type(e).__name__} - {e}")
-         return False
+        logger.error(f"Error checking for topic {topic_path}: {e}")
+        return False
 
 # Define the system prompt as a global variable
 SYSTEM_PROMPT = """
@@ -319,26 +293,25 @@ def orchestrate_request(request):
             # Prepare the message payload for the agent
             message_payload = {
                 "agent_instruction": agent_message_content, # The specific instruction for the agent
+                "repo_url": parsed_response.get("repo_url"),
                 "timestamp": datetime.utcnow().isoformat(),
             }
             message_data = json.dumps(message_payload).encode('utf-8')
 
+            # Create topic if it doesn't exist (useful for dev)
+            create_topic_if_not_exists(publisher, topic_id) 
+
             topic_path = publisher.topic_path(PROJECT_ID, topic_id)
             logger.info(f"Attempting to publish message to topic: {topic_path}")
 
-            # Create topic if it doesn't exist (useful for dev)
-            create_topic_if_not_exists(publisher, topic_path) 
-
-            # Define the callback function (can be at module level)
             def callback(future):
-                # --- This function runs when the publish operation completes ---
                 try:
-                    message_id = future.result() # This waits for the result
+                    message_id = future.result() 
                     logger.info(f"SUCCESS: Published message with ID: {message_id} to topic {topic_path}")
-                    print(f"SUCCESS: Published message with ID: {message_id} to topic {topic_path}") # Ensure this is present
+                    print(f"SUCCESS: Published message with ID: {message_id} to topic {topic_path}") 
                 except Exception as e:
                     logger.error(f"ERROR in publish callback for topic {topic_path}: {type(e).__name__} - {e}")
-                    print(f"ERROR in publish callback for topic {topic_path}: {type(e).__name__} - {e}") # Ensure this is present
+                    print(f"ERROR in publish callback for topic {topic_path}: {type(e).__name__} - {e}") 
 
             future = publisher.publish(topic_path, message_data)
             future.add_done_callback(callback)
