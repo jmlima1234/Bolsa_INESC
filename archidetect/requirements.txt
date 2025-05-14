@@ -4,3 +4,5 @@ environs
 google-generativeai
 django-cors-headers
 google-cloud-secret-manager
+google-cloud-pubsub
+

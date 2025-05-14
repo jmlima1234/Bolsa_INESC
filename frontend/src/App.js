@@ -41,7 +41,7 @@ function App() {
             type="text"
             value={repoUrl}
             onChange={(e) => setRepoUrl(e.target.value)}
-            placeholder="https://github.com/jmffelisberto/Pacxon"
+            placeholder="https://github.com/.../..."
             required
           />
         </div>
